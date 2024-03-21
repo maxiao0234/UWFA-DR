@@ -76,31 +76,6 @@ def get_args_parser():
     return parser
 
 
-# def run_one_step(image_encoder, data_early, data_late):
-#     out_early = image_encoder(data_early)
-#     last_hidden_state_early = out_early.last_hidden_state
-#     grade_embeds_early = last_hidden_state_early[:, 1, :]
-#     period_embeds_early = last_hidden_state_early[:, 2, :]
-#     side_embeds_early = last_hidden_state_early[:, 3, :]
-#     hidden_states_early = out_early.hidden_states
-#
-#     out_late = image_encoder(data_late)
-#     last_hidden_state_late = out_late.last_hidden_state
-#     grade_embeds_late = last_hidden_state_late[:, 1, :]
-#     period_embeds_late = last_hidden_state_late[:, 2, :]
-#     side_embeds_late = last_hidden_state_late[:, 3, :]
-#     hidden_states_late = out_late.hidden_states
-#
-#     state_grade = image_encoder.grade_proj(torch.cat([grade_embeds_early, grade_embeds_late], dim=-1))
-#     prediction_grade = image_encoder.grade_head(state_grade)
-#     state_period = image_encoder.period_proj(torch.cat([period_embeds_early, period_embeds_late], dim=0))
-#     prediction_period = image_encoder.period_head(state_period)
-#     state_side = image_encoder.side_proj(torch.cat([side_embeds_early, side_embeds_late], dim=0))
-#     prediction_side = image_encoder.side_head(state_side)
-#
-#     return hidden_states_early, hidden_states_late, prediction_grade, prediction_period, prediction_side
-
-
 # Copied from transformers.models.bart.modeling_bart._make_causal_mask
 def _make_causal_mask(
     input_ids_shape: torch.Size, dtype: torch.dtype, device: torch.device, past_key_values_length: int = 0
@@ -177,12 +152,6 @@ class CLIPVisionModelPromptTuning(CLIPVisionModel):
 
         for idx, encoder_layer in enumerate(self.vision_model.encoder.layers):
             prompt_embeds = getattr(self, f'prompt_embedding_{idx}').expand(batch_size, -1, -1)
-            # cls_token = hidden_states[:, 0: 1, :]
-            # if idx == 0:
-            #     hidden_states = torch.cat([cls_token, prompt_embeds, hidden_states[:, 1:, :]], dim=1)
-            # else:
-            #     hidden_states = torch.cat([cls_token, prompt_embeds, hidden_states[:, self.hidden_length + 1:, :]], dim=1)
-
             hidden_states = torch.cat([prompt_embeds, hidden_states], dim=1)
 
             layer_outputs = encoder_layer(
@@ -197,10 +166,7 @@ class CLIPVisionModelPromptTuning(CLIPVisionModel):
         last_hidden_state = hidden_states
         pooled_output = last_hidden_state[:, 0, :]
         pooled_output = self.vision_model.post_layernorm(pooled_output)
-
-        # if not return_dict:
-        #     return (last_hidden_state, pooled_output) + encoder_outputs[1:]
-
+        
         return BaseModelOutputWithPooling(
             last_hidden_state=last_hidden_state,
             pooler_output=pooled_output,
@@ -259,15 +225,6 @@ class CLIPTextModelPromptTuning(CLIPTextModel):
             # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
             attention_mask = _expand_mask(attention_mask, hidden_states.dtype)
 
-        # encoder_outputs = self.encoder(
-        #     inputs_embeds=hidden_states,
-        #     attention_mask=attention_mask,
-        #     causal_attention_mask=causal_attention_mask,
-        #     output_attentions=output_attentions,
-        #     output_hidden_states=output_hidden_states,
-        #     return_dict=return_dict,
-        # )
-
         encoder_states = (hidden_states, )
 
         for idx, encoder_layer in enumerate(self.text_model.encoder.layers):
@@ -307,29 +264,12 @@ class CLIPTextModelPromptTuning(CLIPTextModel):
                 .argmax(dim=-1),
             ]
 
-        # if not return_dict:
-        #     return (last_hidden_state, pooled_output) + encoder_outputs[1:]
-
         return BaseModelOutputWithPooling(
             last_hidden_state=last_hidden_state,
             pooler_output=pooled_output,
             hidden_states=encoder_states,
             # attentions=encoder_outputs.attentions,
         )
-
-
-# def infoNCE_loss(embedding_1, embedding_2, temperature=0.5):
-#     embedding_1 = embedding_1.reshape(-1, embedding_1.shape[-1])
-#     embedding_2 = embedding_2.reshape(-1, embedding_2.shape[-1])
-#     similarity_matrix = torch.matmul(embedding_1, embedding_2.t()) / temperature
-#     labels = torch.arange(embedding_1.shape[0]).to(embedding_1.device)
-#     positives = similarity_matrix[labels, labels].unsqueeze(1)
-#     negatives = similarity_matrix.clone()
-#     negatives.fill_diagonal_(float('-inf'))
-#     negatives = torch.logsumexp(negatives, dim=1, keepdim=True)
-#
-#     logits_diff = positives - negatives
-#     return -logits_diff.mean()
 
 
 def contrastive_loss(logits: torch.Tensor) -> torch.Tensor:
@@ -343,35 +283,6 @@ def clip_loss(text_embeds, image_embeds, logit_scale):
     caption_loss = contrastive_loss(logits_per_text)
     image_loss = contrastive_loss(logits_per_text.t())
     return (caption_loss + image_loss) / 2.0
-
-
-# def clip_loss_multi(text_embeds, image_embeds_list, logit_scale):
-#     N = len(image_embeds_list)
-#     B, C = image_embeds_list[0].shape
-#     image_embeds = []
-#     for embeds in image_embeds_list:
-#         for n in range(N - 1):
-#             embeds = torch.stack([embeds] * B, dim=0)
-#         image_embeds.append(embeds)
-#     image_embeds = torch.stack(image_embeds, dim=-2)
-#     image_embeds = image_embeds.reshape((B ** N, N, C))
-#
-#     text_embeds = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True)
-#     image_embeds = image_embeds / image_embeds.norm(p=2, dim=-1, keepdim=True)
-#
-#     logits_per_text = torch.einsum('g c, b h c -> b g h', text_embeds, image_embeds) * logit_scale
-#     logits_per_image = logits_per_text.permute(0, 2, 1)
-#     logits_per_text = logits_per_text.reshape((B ** N * N, N))
-#     logits_per_image = logits_per_image.reshape((B ** N * N, N))
-#
-#     label = torch.arange(N, device=logits_per_text.device).unsqueeze(0).expand(B ** N, -1).reshape(-1)
-#     caption_loss = nn.functional.cross_entropy(logits_per_text, label)
-#     image_loss = nn.functional.cross_entropy(logits_per_image, label)
-#
-#     loss = (caption_loss + image_loss) / 2.0
-#     acc = accuracy(logits_per_image, label)[0]
-#
-#     return loss, acc
 
 
 def run_image_embeds(pixel_values, image_encoder, visual_projection, hidden_length=64):
