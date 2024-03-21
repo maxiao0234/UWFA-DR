@@ -102,9 +102,9 @@ def main(args):
                 # inversion
                 for i, t in enumerate(tqdm(ldm_stable.scheduler.timesteps[-args.num_steps:])):
                     noise_pred_uncond = ldm_stable.unet(last_latent, t,
-                                                 encoder_hidden_states=text_embeddings_source)["sample"]
+                                                 encoder_hidden_states=text_embeddings_source_fusion)["sample"]
                     noise_prediction = ldm_stable.unet(last_latent, t,
-                                                        encoder_hidden_states=text_embeddings_target)["sample"]
+                                                        encoder_hidden_states=text_embeddings_target_fusion)["sample"]
                     noise_pred = noise_pred_uncond + 7.5 * (noise_prediction - noise_pred_uncond)
                     last_latent = ldm_stable.scheduler.step(noise_pred, t, last_latent)["prev_sample"]
 
