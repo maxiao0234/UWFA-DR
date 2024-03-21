@@ -19,6 +19,7 @@ During the inferencing phase, the original UWFA image is edited into disease-fre
 ```
 sh scripts/inference_inversion.sh
 ```
+Here is an example, which includes the original image, the edited image, and the difference between the two.
 <img src="results/UWFA/npdr_0_late.bmp">
 
 ## Citing
